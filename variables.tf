@@ -1,82 +1,110 @@
 variable "name" {
-  description = "Nom logique du Security Group (ex : novasphere-dev-alb)."
+  description = "Préfixe lisible du Security Group et valeur du tag Name."
   type        = string
 
   validation {
-    condition     = can(regex("^[a-z0-9-]{3,40}$", var.name))
-    error_message = "name doit faire 3 a 40 caracteres : minuscules, chiffres et tirets."
+    condition     = can(regex("^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$", var.name))
+    error_message = "name doit contenir 3 à 40 caractères : minuscules, chiffres ou tirets, sans tiret au début ni à la fin."
   }
 }
 
 variable "vpc_id" {
-  description = "Identifiant du VPC dans lequel creer le Security Group."
+  description = "Identifiant du VPC dans lequel créer le Security Group."
   type        = string
 
   validation {
-    condition     = can(regex("^vpc-", var.vpc_id))
-    error_message = "vpc_id doit commencer par vpc-."
+    condition     = can(regex("^vpc-([0-9a-fA-F]{8}|[0-9a-fA-F]{17})$", var.vpc_id))
+    error_message = "vpc_id doit être un identifiant VPC AWS valide (vpc- suivi de 8 ou 17 caractères hexadécimaux)."
   }
 }
 
 variable "ingress_port" {
-  description = "Port TCP ouvert en entree (un seul port par Security Group)."
+  description = "Port TCP unique autorisé en entrée. L'administration SSH/RDP doit utiliser un mécanisme dédié."
   type        = number
 
   validation {
     condition = (
+      var.ingress_port == floor(var.ingress_port) &&
       var.ingress_port >= 1 &&
       var.ingress_port <= 65535 &&
       !contains([22, 3389], var.ingress_port)
     )
-    error_message = "ingress_port doit etre entre 1 et 65535 et ne peut pas etre 22 (SSH) ni 3389 (RDP) : l'administration passe par Session Manager."
+    error_message = "ingress_port doit être un entier entre 1 et 65535, différent de 22 (SSH) et de 3389 (RDP)."
   }
 }
 
 variable "allowed_cidrs" {
-  description = "CIDR autorises en entree. 0.0.0.0/0 n'est accepte que pour les ports 80 et 443."
+  description = "Sources IPv4 autorisées en entrée. À utiliser à la place de source_security_group_ids, jamais en même temps."
   type        = list(string)
   default     = []
 
   validation {
-    condition     = alltrue([for c in var.allowed_cidrs : can(cidrhost(c, 0))])
-    error_message = "Chaque element de allowed_cidrs doit etre un CIDR valide (ex : 10.0.0.0/16)."
+    condition = alltrue([
+      for cidr in var.allowed_cidrs :
+      can(cidrnetmask(cidr)) && try(cidrsubnet(cidr, 0, 0) == cidr, false)
+    ])
+    error_message = "Chaque valeur de allowed_cidrs doit être un réseau IPv4 CIDR valide et canonique (ex. 10.20.0.0/16)."
+  }
+
+  validation {
+    condition     = length(var.allowed_cidrs) == length(toset(var.allowed_cidrs))
+    error_message = "allowed_cidrs ne doit pas contenir de doublons."
   }
 
   validation {
     condition     = !contains(var.allowed_cidrs, "0.0.0.0/0") || contains([80, 443], var.ingress_port)
-    error_message = "0.0.0.0/0 n'est autorise que sur les ports 80 et 443."
+    error_message = "La source publique 0.0.0.0/0 est uniquement autorisée pour HTTP (80) ou HTTPS (443)."
   }
 
   validation {
-    condition     = length(var.allowed_cidrs) > 0 || var.source_security_group_id != null
-    error_message = "Fournir au moins une source : allowed_cidrs ou source_security_group_id."
+    condition = (
+      (length(var.allowed_cidrs) > 0) !=
+      (length(var.source_security_group_ids) > 0)
+    )
+    error_message = "Définir exactement un type de source : allowed_cidrs OU source_security_group_ids."
   }
 }
 
-variable "source_security_group_id" {
-  description = "Security Group autorise en entree (ex : celui de l'ALB). Prefere a un CIDR quand c'est possible."
-  type        = string
-  default     = null
+variable "source_security_group_ids" {
+  description = "Liste des Security Groups autorisés à joindre le port d'entrée. À utiliser à la place de allowed_cidrs."
+  type        = list(string)
+  default     = []
 
   validation {
-    condition     = var.source_security_group_id == null || can(regex("^sg-", var.source_security_group_id))
-    error_message = "source_security_group_id doit commencer par sg-."
+    condition = alltrue([
+      for sg_id in var.source_security_group_ids :
+      can(regex("^sg-([0-9a-fA-F]{8}|[0-9a-fA-F]{17})$", sg_id))
+    ])
+    error_message = "Chaque élément de source_security_group_ids doit être un identifiant Security Group AWS valide (sg- suivi de 8 ou 17 caractères hexadécimaux)."
+  }
+
+  validation {
+    condition     = length(var.source_security_group_ids) == length(toset(var.source_security_group_ids))
+    error_message = "source_security_group_ids ne doit pas contenir de doublons."
   }
 }
 
 variable "egress_ports" {
-  description = "Ports TCP autorises en sortie vers Internet. Jamais de regle 'tout autoriser'."
+  description = "Ports TCP autorisés en sortie vers 0.0.0.0/0. Une liste vide bloque les nouvelles connexions sortantes gérées par ce module."
   type        = list(number)
   default     = [80, 443]
 
   validation {
-    condition     = alltrue([for p in var.egress_ports : p >= 1 && p <= 65535])
-    error_message = "Chaque port de egress_ports doit etre entre 1 et 65535."
+    condition = alltrue([
+      for port in var.egress_ports :
+      port == floor(port) && port >= 1 && port <= 65535
+    ])
+    error_message = "Chaque port de egress_ports doit être un entier compris entre 1 et 65535."
+  }
+
+  validation {
+    condition     = length(var.egress_ports) == length(toset(var.egress_ports))
+    error_message = "egress_ports ne doit pas contenir de doublons."
   }
 }
 
 variable "tags" {
-  description = "Tags supplementaires (les default_tags du provider s'appliquent deja)."
+  description = "Tags complémentaires. Le module impose sa propre valeur pour le tag Name."
   type        = map(string)
   default     = {}
 }

@@ -1,25 +1,40 @@
-name: Module tests
+name: Terraform module checks
+
 on:
   pull_request:
   push:
-    branches: [main]
-    tags: ["v*"]
+    branches:
+      - main
+    tags:
+      - "v*"
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  quality:
+    name: Format, validate and test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Installer Terraform
+        uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: "1.15.8"
+          terraform_version: "1.14.0"
+          terraform_wrapper: false
 
-      - run: terraform fmt -check -recursive
-      - run: terraform init -input=false -backend=false
-      - run: terraform validate
-      # Tests sans AWS : provider simule, aucun credential requis.
-      - run: terraform test
+      - name: Vérifier le formatage
+        run: terraform fmt -check -recursive
+
+      - name: Initialiser sans backend distant
+        run: terraform init -input=false -backend=false
+
+      - name: Valider la configuration
+        run: terraform validate -no-color
+
+      - name: Exécuter les tests sans créer de ressources AWS
+        run: terraform test -no-color
