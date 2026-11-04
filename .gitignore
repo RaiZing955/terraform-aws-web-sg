@@ -1,6 +1,20 @@
+# Terraform : cache local et données potentiellement sensibles
 .terraform/
-*.tfstate*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+
+# Valeurs locales et clés
 *.tfvars
+!*.tfvars.example
 *.pem
 .env
-crash.log
+.env.*
+!.env.example
+
+# Éditeurs / système
+.DS_Store
+.vscode/
+.idea/
