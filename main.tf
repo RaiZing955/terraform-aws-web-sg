@@ -2,7 +2,7 @@
 # des ressources dédiées afin de disposer d'un identifiant par règle.
 resource "aws_security_group" "this" {
   name_prefix = "${var.name}-"
-  description = "Security Group ${var.name} - géré par Terraform"
+  description = "Security Group ${var.name} - managed by Terraform"
   vpc_id      = var.vpc_id
 
   tags = merge(var.tags, {
