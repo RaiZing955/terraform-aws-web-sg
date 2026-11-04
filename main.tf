@@ -37,7 +37,7 @@ resource "aws_vpc_security_group_ingress_rule" "source_security_group" {
   count = length(var.source_security_group_ids)
 
   security_group_id            = aws_security_group.this.id
-  description                  = "TCP ${var.ingress_port} depuis un Security Group autorisé"
+  description                  = "TCP ${var.ingress_port} from an allowed Security Group"
   ip_protocol                  = "tcp"
   from_port                    = var.ingress_port
   to_port                      = var.ingress_port
